@@ -1,6 +1,6 @@
 // Local headers
 #include "gloom/gloom.hpp"
-#include "program.hpp"
+#include "gloom/program.hpp"
 
 // System headers
 #include <glad/glad.h>
@@ -8,6 +8,10 @@
 
 // Standard headers
 #include <cstdlib>
+
+// Debugging and logging GL-utilites
+#define GFX_IMPLEMENTATION
+#include "overkill/gfx.h"
 
 
 // A callback which allows GLFW to report errors whenever they occur
