@@ -34,9 +34,110 @@ const float CAM_SPEED = 50.0f;
 const float CAM_ROTATION_SPEED = 1.0f;
 double dDeltaTime = 0;
 
+// Transfer the mesh to the GPU
+SceneNode* TransferMesh(Mesh& mesh)
+{
+    VertexArray vao; //create vao, and bind it
+
+    GLuint
+        positionsByteSize   = static_cast<GLuint>(mesh.vertices.size() * sizeof(float)),
+        normalsByteSize     = static_cast<GLuint>(mesh.normals.size() * sizeof(float)),
+        colorsByteSize      = static_cast<GLuint>(mesh.colours.size() * sizeof(float));
+
+    VertexBuffer vbo = { //create a vbo with enough space for all the attributes
+        static_cast<GLsizeiptr>(positionsByteSize + normalsByteSize + colorsByteSize)
+    };
+
+    vbo.update( //upload the positional data
+        0, positionsByteSize, mesh.vertices.data()
+    );
+    vbo.update( //upload the normal data
+        positionsByteSize, normalsByteSize, mesh.normals.data()
+    );
+    vbo.update( //upload the color data
+        positionsByteSize + normalsByteSize, colorsByteSize, mesh.colours.data()
+    );
+
+    IndexBuffer<unsigned int> ibo = { 
+        static_cast<GLsizeiptr>(mesh.indices.size()), mesh.indices.data() 
+    };
+
+    ContinuousVertexLayout{ //Attribute layout descriptor
+        // name, size, components, internal type, normalized
+        {"position", positionsByteSize, 3, GL_FLOAT, GL_FALSE},
+        {"normal", normalsByteSize, 3, GL_FLOAT, GL_TRUE},
+        {"color", colorsByteSize, 4, GL_FLOAT, GL_TRUE},
+    }.applyToBuffer(vbo); //Activate the given attributes
+
+    auto node = createSceneNode();
+
+    node->vertexArrayObjectID = vao.ID();
+    node->VAOIndexCount = mesh.indices.size();
+
+    return node;
+}
+
+SceneNode* constructScene()
+{
+    Mesh terrainMesh = loadTerrainMesh("../gloom/res/models/lunarsurface.obj");
+    Helicopter heliModel = loadHelicopterModel("../gloom/res/models/helicopter.obj");
+
+    SceneNode
+        *terrain = TransferMesh(terrainMesh),
+        *heliBody = TransferMesh(heliModel.body),
+        *heliDoor = TransferMesh(heliModel.door),
+        *heliMainRotor = TransferMesh(heliModel.mainRotor),
+        *heliTailRotor = TransferMesh(heliModel.tailRotor);
+    
+    heliMainRotor->referencePoint = { 0.0f,1.5f,0.0f };
+    heliTailRotor->referencePoint = { 0.35f,2.3f,10.4f };
+
+    auto root = createSceneNode();
+        addChild(root, terrain);
+        addChild(root, heliBody);
+            addChild(heliBody, heliDoor);
+            addChild(heliBody, heliMainRotor);
+            addChild(heliBody, heliTailRotor);
+
+    updateSceneNode(root);
+    return root;
+}
+
+void renderNode(const SceneNode* node, glm::mat4 viewProjection, ShaderProgram boundShader)
+{
+    // All renderable objects has a VAO, meaning it's id will not be -1, all VAOs with id != 0 are considered valid.
+    if(node->vertexArrayObjectID > 0) 
+    {
+        //Slightly inefficient to have a lookup of uniforms every for frame... but for now, it's an easy approach
+        glUniformMatrix4fv(boundShader.getUniformLocation("mvp"), 1, GL_FALSE, glm::value_ptr(viewProjection * node->currentTransformationMatrix));
+        glUniformMatrix4fv(boundShader.getUniformLocation("m2w"), 1, GL_FALSE, glm::value_ptr(node->currentTransformationMatrix));
+        GFX_GL_CALL(glBindVertexArray(node->vertexArrayObjectID));
+        GFX_GL_CALL(glDrawElements(GL_TRIANGLES, node->VAOIndexCount, GL_UNSIGNED_INT, 0));
+    }
+    for (const auto& child : node->children)
+        renderNode(child, viewProjection, boundShader);
+}
+
+void updateSceneNode(SceneNode* node, glm::mat4 transformationThusFar = glm::mat4(1))
+{
+    // Do transformation computations here
+    glm::mat4 model = glm::translate(node->referencePoint);  //move to reference point
+    model = glm::rotate(model, node->rotation.x, {1, 0, 0}); //Rotate relative to referencePoint
+    model = glm::rotate(model, node->rotation.y, {0, 1, 0});
+    model = glm::rotate(model, node->rotation.z, {0, 0, 1});
+    model = glm::translate(model, -(node->referencePoint));  //move back into model space
+    model = glm::translate(model, node->position);                  //Translate relative to referencePoint
+
+    // Store matrix in the node's currentTransformationMatrix here
+
+    node->currentTransformationMatrix = transformationThusFar * model;
+
+    for (const auto& child : node->children)
+        updateSceneNode(child, node->currentTransformationMatrix);
+}
+
 void runProgram(GLFWwindow* window)
 {
-
     // Enable depth (Z) buffer (accept "closest" fragment)
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -53,53 +154,19 @@ void runProgram(GLFWwindow* window)
 
     glm::vec4 tint = { 0.6,0.8,1,1 };
 
-    Mesh terrainMesh = loadTerrainMesh("../gloom/res/models/lunarsurface.obj");
-
-
-    VertexArray vao; //create vao, and bind it
-
-    VertexBuffer vbo = { //create a vbo with enough space for all the attributes
-        static_cast<GLsizeiptr>(
-            terrainMesh.vertices.size() * sizeof(float) +
-            terrainMesh.normals.size()  * sizeof(float) +
-            terrainMesh.colours.size()  * sizeof(float)
-        )
-    };
-
-    vbo.update( //upload the positional data
-        0, 
-        terrainMesh.vertices.size() * sizeof(float), 
-        terrainMesh.vertices.data()
-    ); 
-    vbo.update( //upload the normal data
-        terrainMesh.vertices.size() * sizeof(float), 
-        terrainMesh.normals.size() * sizeof(float), 
-        terrainMesh.normals.data()
-    );
-    vbo.update( //upload the color data
-        terrainMesh.vertices.size() * sizeof(float) + terrainMesh.normals.size() * sizeof(float),
-        terrainMesh.colours.size() * sizeof(float), 
-        terrainMesh.colours.data());
-
-    IndexBuffer<unsigned int> ibo = { static_cast<GLsizeiptr>(terrainMesh.indices.size()), terrainMesh.indices.data() };
-
-    ContinuousVertexLayout {
-       {"position", terrainMesh.vertices.size() * sizeof(float), 3, GL_FLOAT, GL_FALSE},
-       {"normal", terrainMesh.normals.size() * sizeof(float), 3, GL_FLOAT, GL_TRUE},
-       {"color", terrainMesh.colours.size() * sizeof(float), 4, GL_FLOAT, GL_TRUE},
-    }.applyToBuffer(vbo);
+    SceneNode* scene = constructScene();
 
     //Create the shader to draw the geometry
     ShaderProgram shader = createProgram("../gloom/res/shaders/simple.vert", "../gloom/res/shaders/simple.frag");
 
-    GLint u_timeHandle = shader.getUniformLocation("time");
-    GLint u_m2wMatHandle = shader.getUniformLocation("m2w");
+    GLint u_timeHandle =    shader.getUniformLocation("time");
     GLint u_viewMatHandle = shader.getUniformLocation("view");
     GLint u_projMatHandle = shader.getUniformLocation("projection");
 
     double dLastTime = 0;
     double dTimeSinceStartup = 0;
     double dTime = 0;
+
 
     // Rendering Loop
     while (!glfwWindowShouldClose(window))
@@ -113,24 +180,16 @@ void runProgram(GLFWwindow* window)
             glUniform1f(u_timeHandle, dTime);
         // Draw your scene here
             
-        glm::mat4 mat_model = glm::translate(glm::mat4(1), {0,sin(dTime)*100,0});
-        glm::mat4 mat_view = glm::mat4(1); //identity
-
-        mat_view = glm::rotate(mat_view, cam_pitch, glm::vec3{ 1,0,0 });
+        glm::mat4 mat_view = glm::rotate(glm::mat4(1), cam_pitch, glm::vec3{ 1,0,0 });
         mat_view = glm::rotate(mat_view, cam_yaw, glm::vec3{ 0,1,0 });
-
         mat_view = glm::translate(mat_view, -cam_position);
-            
         glm::mat4 mat_proj = glm::perspective(glm::radians(75.0f), (float)windowHeight / windowWidth, 0.2f, 1500.0f);
         
-        glm::mat4 mat_mvp = mat_proj * mat_view;
-    
-
-        glUniformMatrix4fv(u_m2wMatHandle, 1, GL_FALSE, glm::value_ptr(mat_model));
         glUniformMatrix4fv(u_viewMatHandle, 1, GL_FALSE, glm::value_ptr(mat_view));
         glUniformMatrix4fv(u_projMatHandle, 1, GL_FALSE, glm::value_ptr(mat_proj));
 
-        glDrawElements(GL_TRIANGLES, terrainMesh.vertexCount(), GL_UNSIGNED_INT, 0); //draw what is in the bound vbo as triangles, draw 9 vertices with no offset
+        renderNode(scene, mat_proj * mat_view, shader);
+
         // Handle other events
         glfwPollEvents();
         handleKeyboardInput(window);

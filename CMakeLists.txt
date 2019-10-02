@@ -47,10 +47,10 @@ file (GLOB_RECURSE PROJECT_SOURCES gloom/src/*.cpp
                                    gloom/src/*.cxx
                                    gloom/src/*.cc
                                    gloom/src/*.c)
-file (GLOB_RECURSE PROJECT_SHADERS gloom/shaders/*.comp
-                                   gloom/shaders/*.frag
-                                   gloom/shaders/*.geom
-                                   gloom/shaders/*.vert)
+file (GLOB_RECURSE PROJECT_SHADERS gloom/res/shaders/*.comp
+                                   gloom/res/shaders/*.frag
+                                   gloom/res/shaders/*.geom
+                                   gloom/res/shaders/*.vert)
 file (GLOB         PROJECT_CONFIGS CMakeLists.txt
                                    README.rst
                                   .gitignore
