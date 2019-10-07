@@ -1,7 +1,7 @@
 #include "OBJLoader.hpp"
 #include <algorithm>
 #include <exception>
-#include "sceneGraph.hpp"
+#include "scene_graph/sceneGraph.hpp"
 #include "toolbox.hpp"
 
 void split(std::string &target, const char delimiter, std::vector<std::string> &res, unsigned int* outLength)

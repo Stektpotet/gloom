@@ -19,10 +19,14 @@
 #include "overkill/graphics_internal/VertexLayout.hpp"
 #include "overkill/graphics_internal/ShaderProgram.hpp"
 
-#include "sceneGraph.hpp"
+#include "scene_graph/SceneNode.hpp"
+#include "scene_graph/RotorNode.hpp"
+#include "scene_graph/PathFollowingNode.hpp"
+#include "scene_graph/util.hpp"
 #include "OBJLoader.hpp"
 #include "mesh.hpp"
 
+#include "toolbox.hpp"
 
 float cam_pitch;
 float cam_yaw;
@@ -34,106 +38,58 @@ const float CAM_SPEED = 50.0f;
 const float CAM_ROTATION_SPEED = 1.0f;
 double dDeltaTime = 0;
 
-// Transfer the mesh to the GPU
-SceneNode* TransferMesh(Mesh& mesh)
-{
-    VertexArray vao; //create vao, and bind it
-
-    GLuint
-        positionsByteSize   = static_cast<GLuint>(mesh.vertices.size() * sizeof(float)),
-        normalsByteSize     = static_cast<GLuint>(mesh.normals.size() * sizeof(float)),
-        colorsByteSize      = static_cast<GLuint>(mesh.colours.size() * sizeof(float));
-
-    VertexBuffer vbo = { //create a vbo with enough space for all the attributes
-        static_cast<GLsizeiptr>(positionsByteSize + normalsByteSize + colorsByteSize)
-    };
-
-    vbo.update( //upload the positional data
-        0, positionsByteSize, mesh.vertices.data()
-    );
-    vbo.update( //upload the normal data
-        positionsByteSize, normalsByteSize, mesh.normals.data()
-    );
-    vbo.update( //upload the color data
-        positionsByteSize + normalsByteSize, colorsByteSize, mesh.colours.data()
-    );
-
-    IndexBuffer<unsigned int> ibo = { 
-        static_cast<GLsizeiptr>(mesh.indices.size()), mesh.indices.data() 
-    };
-
-    ContinuousVertexLayout{ //Attribute layout descriptor
-        // name, size, components, internal type, normalized
-        {"position", positionsByteSize, 3, GL_FLOAT, GL_FALSE},
-        {"normal", normalsByteSize, 3, GL_FLOAT, GL_TRUE},
-        {"color", colorsByteSize, 4, GL_FLOAT, GL_TRUE},
-    }.applyToBuffer(vbo); //Activate the given attributes
-
-    auto node = createSceneNode();
-
-    node->vertexArrayObjectID = vao.ID();
-    node->VAOIndexCount = mesh.indices.size();
-
-    return node;
-}
-
 SceneNode* constructScene()
 {
     Mesh terrainMesh = loadTerrainMesh("../gloom/res/models/lunarsurface.obj");
     Helicopter heliModel = loadHelicopterModel("../gloom/res/models/helicopter.obj");
 
     SceneNode
-        *terrain = TransferMesh(terrainMesh),
-        *heliBody = TransferMesh(heliModel.body),
-        *heliDoor = TransferMesh(heliModel.door),
-        *heliMainRotor = TransferMesh(heliModel.mainRotor),
-        *heliTailRotor = TransferMesh(heliModel.tailRotor);
-    
+        *terrain = createSceneNode<SceneNode>(),
+        *heliBody = createSceneNode<PathFollowingNode>(3.0),
+        *heliDoor = createSceneNode<SceneNode>(),
+        *heliMainRotor = createSceneNode<RotorNode>(glm::vec3{0,1,0}, 15.0f),
+        *heliTailRotor = createSceneNode<RotorNode>(glm::vec3{1,0,0}, -45.0f);
+
+    TransferMesh(terrainMesh, terrain),
+    TransferMesh(heliModel.body, heliBody),
+    TransferMesh(heliModel.door, heliDoor);
+    TransferMesh(heliModel.mainRotor, heliMainRotor),
+    TransferMesh(heliModel.tailRotor, heliTailRotor);
+
     heliMainRotor->referencePoint = { 0.0f,1.5f,0.0f };
     heliTailRotor->referencePoint = { 0.35f,2.3f,10.4f };
 
-    auto root = createSceneNode();
-        addChild(root, terrain);
-        addChild(root, heliBody);
-            addChild(heliBody, heliDoor);
-            addChild(heliBody, heliMainRotor);
-            addChild(heliBody, heliTailRotor);
+    auto root = createSceneNode<SceneNode>();
+        root->addChild(terrain);
+        root->addChild(heliBody);
+            heliBody->addChild(heliDoor);
+            heliBody->addChild(heliMainRotor);
+            heliBody->addChild(heliTailRotor);
 
-    updateSceneNode(root);
+    updateTransforms(root);
     return root;
 }
 
 void renderNode(const SceneNode* node, glm::mat4 viewProjection, ShaderProgram boundShader)
 {
     // All renderable objects has a VAO, meaning it's id will not be -1, all VAOs with id != 0 are considered valid.
-    if(node->vertexArrayObjectID > 0) 
+    if(node->vertexArray.valid()) 
     {
         //Slightly inefficient to have a lookup of uniforms every for frame... but for now, it's an easy approach
-        glUniformMatrix4fv(boundShader.getUniformLocation("mvp"), 1, GL_FALSE, glm::value_ptr(viewProjection * node->currentTransformationMatrix));
-        glUniformMatrix4fv(boundShader.getUniformLocation("m2w"), 1, GL_FALSE, glm::value_ptr(node->currentTransformationMatrix));
-        GFX_GL_CALL(glBindVertexArray(node->vertexArrayObjectID));
+        glUniformMatrix4fv(boundShader.getUniformLocation("mvp"), 1, GL_FALSE, glm::value_ptr(viewProjection * node->matTRS));
+        glUniformMatrix4fv(boundShader.getUniformLocation("m2w"), 1, GL_FALSE, glm::value_ptr(node->matTRS));
+        node->vertexArray.bind();
         GFX_GL_CALL(glDrawElements(GL_TRIANGLES, node->VAOIndexCount, GL_UNSIGNED_INT, 0));
     }
     for (const auto& child : node->children)
         renderNode(child, viewProjection, boundShader);
 }
 
-void updateSceneNode(SceneNode* node, glm::mat4 transformationThusFar = glm::mat4(1))
+void animate(float deltaTime, SceneNode* node)
 {
-    // Do transformation computations here
-    glm::mat4 model = glm::translate(node->referencePoint);  //move to reference point
-    model = glm::rotate(model, node->rotation.x, {1, 0, 0}); //Rotate relative to referencePoint
-    model = glm::rotate(model, node->rotation.y, {0, 1, 0});
-    model = glm::rotate(model, node->rotation.z, {0, 0, 1});
-    model = glm::translate(model, -(node->referencePoint));  //move back into model space
-    model = glm::translate(model, node->position);                  //Translate relative to referencePoint
-
-    // Store matrix in the node's currentTransformationMatrix here
-
-    node->currentTransformationMatrix = transformationThusFar * model;
-
+    node->update(deltaTime);
     for (const auto& child : node->children)
-        updateSceneNode(child, node->currentTransformationMatrix);
+        animate(deltaTime, child);
 }
 
 void runProgram(GLFWwindow* window)
@@ -162,6 +118,7 @@ void runProgram(GLFWwindow* window)
     GLint u_timeHandle =    shader.getUniformLocation("time");
     GLint u_viewMatHandle = shader.getUniformLocation("view");
     GLint u_projMatHandle = shader.getUniformLocation("projection");
+    GLint u_camPosHandle = shader.getUniformLocation("view_wPosition"); //camera world position
 
     double dLastTime = 0;
     double dTimeSinceStartup = 0;
@@ -187,7 +144,10 @@ void runProgram(GLFWwindow* window)
         
         glUniformMatrix4fv(u_viewMatHandle, 1, GL_FALSE, glm::value_ptr(mat_view));
         glUniformMatrix4fv(u_projMatHandle, 1, GL_FALSE, glm::value_ptr(mat_proj));
+        glUniform3fv(u_camPosHandle, 1, glm::value_ptr(cam_position));
 
+        animate((float)dDeltaTime, scene);
+        updateTransforms(scene);
         renderNode(scene, mat_proj * mat_view, shader);
 
         // Handle other events
