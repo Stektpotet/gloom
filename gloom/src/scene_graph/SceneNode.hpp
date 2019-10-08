@@ -2,6 +2,7 @@
 #include <vector>
 #include <glm/glm.hpp>
 #include "overkill/graphics_internal/VertexArray.hpp"
+#include "overkill/graphics_internal/ShaderProgram.hpp"
 
 struct SceneNode {
     ~SceneNode();
@@ -22,6 +23,7 @@ struct SceneNode {
     // The ID of the VAO containing the "appearance" of this SceneNode.
     VertexArray vertexArray;
     unsigned int VAOIndexCount = 0;
+    ShaderProgram shader;
 
     virtual void update(float deltaTime);
 

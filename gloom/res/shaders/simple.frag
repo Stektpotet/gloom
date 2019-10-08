@@ -39,7 +39,7 @@ vec3 directional_light(in vec3 light_dir, in vec3 intensities) {
     vec3 view_dir = normalize(vert_wPosition - view_wPosition); //direction to the camera
     vec3 reflect_dir = reflect(light_dir, norm);
     float spec_power = pow(max(dot(view_dir, reflect_dir ), 0.0), 32);
-    vec3 specular = specularity * spec_power *  intensities;
+    vec3 specular = (0.5+sin(time)*0.5)* spec_power *  intensities;
 
 	return (ambient + diffuse + specular);
 }
@@ -47,9 +47,11 @@ vec3 directional_light(in vec3 light_dir, in vec3 intensities) {
 out vec4 frag_result;
 void main() {
 
-    vec3 animated_light_direction = vec3(cos(light_direction.x+time), light_direction.y, sin(light_direction.z+time));
+//    vec3 animated_light_direction = vec3(cos(light_direction.x+time), light_direction.y, sin(light_direction.z+time));
+    vec3 animated_light_direction = light_direction;
 
     frag_result = vec4(vert_color.rgb * directional_light(animated_light_direction, light_color), vert_color.a);
+
     // Old Lambertian shading:
     // frag_result = vec4(vert_color.rgb * max(0, dot(normalize(vert_normal), -light_direction)), vert_color.a); 
 }

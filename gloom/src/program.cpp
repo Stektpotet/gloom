@@ -38,33 +38,45 @@ const float CAM_SPEED = 50.0f;
 const float CAM_ROTATION_SPEED = 1.0f;
 double dDeltaTime = 0;
 
+void makeHelicopters(SceneNode* parent, int n = 5, float pathOffset = 1.58f)
+{
+    Helicopter heliModel = loadHelicopterModel("../gloom/res/models/helicopter.obj");
+
+    for (size_t i = 0; i < n; i++)
+    {
+        PathFollowingNode
+            *heliBody = createSceneNode<PathFollowingNode>(i * pathOffset);
+
+        SceneNode
+            *heliDoor = createSceneNode<SceneNode>(),
+            *heliMainRotor = createSceneNode<RotorNode>(glm::vec3{ 0,1,0 }, 15.0f),
+            *heliTailRotor = createSceneNode<RotorNode>(glm::vec3{ 1,0,0 }, -45.0f);
+
+        TransferMesh(heliModel.body, heliBody);
+        TransferMesh(heliModel.door, heliDoor);
+        TransferMesh(heliModel.mainRotor, heliMainRotor);
+        TransferMesh(heliModel.tailRotor, heliTailRotor);
+
+        heliMainRotor->referencePoint = { 0.0f,1.5f,0.0f };
+        heliTailRotor->referencePoint = { 0.35f,2.3f,10.4f };
+        
+        parent->addChild(heliBody);
+        heliBody->addChild(heliDoor);
+        heliBody->addChild(heliMainRotor);
+        heliBody->addChild(heliTailRotor);
+    }
+}
+
 SceneNode* constructScene()
 {
     Mesh terrainMesh = loadTerrainMesh("../gloom/res/models/lunarsurface.obj");
-    Helicopter heliModel = loadHelicopterModel("../gloom/res/models/helicopter.obj");
 
-    SceneNode
-        *terrain = createSceneNode<SceneNode>(),
-        *heliBody = createSceneNode<PathFollowingNode>(3.0),
-        *heliDoor = createSceneNode<SceneNode>(),
-        *heliMainRotor = createSceneNode<RotorNode>(glm::vec3{0,1,0}, 15.0f),
-        *heliTailRotor = createSceneNode<RotorNode>(glm::vec3{1,0,0}, -45.0f);
-
-    TransferMesh(terrainMesh, terrain),
-    TransferMesh(heliModel.body, heliBody),
-    TransferMesh(heliModel.door, heliDoor);
-    TransferMesh(heliModel.mainRotor, heliMainRotor),
-    TransferMesh(heliModel.tailRotor, heliTailRotor);
-
-    heliMainRotor->referencePoint = { 0.0f,1.5f,0.0f };
-    heliTailRotor->referencePoint = { 0.35f,2.3f,10.4f };
+    SceneNode *terrain = createSceneNode<SceneNode>();
+    TransferMesh(terrainMesh, terrain);
 
     auto root = createSceneNode<SceneNode>();
         root->addChild(terrain);
-        root->addChild(heliBody);
-            heliBody->addChild(heliDoor);
-            heliBody->addChild(heliMainRotor);
-            heliBody->addChild(heliTailRotor);
+        makeHelicopters(root);
 
     updateTransforms(root);
     return root;
@@ -106,9 +118,6 @@ void runProgram(GLFWwindow* window)
 
     // Set default colour after clearing the colour buffer
     glClearColor(0.7f, 0.7f, 0.7f, 1.0f);
-
-
-    glm::vec4 tint = { 0.6,0.8,1,1 };
 
     SceneNode* scene = constructScene();
 

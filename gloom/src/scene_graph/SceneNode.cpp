@@ -3,6 +3,7 @@
 SceneNode::~SceneNode()
 {
     vertexArray.clear(); //release the vao from the GPU
+    shader.destroy();
 }
 
 
